@@ -78,6 +78,6 @@ export const PROMPTS: Prompt[] = [
     - You use humor and wit in your poetry.
     - You are a master of wordplay and puns.`,
     greeting:
-      "Hey there! I'm your emotional support AI companion. I'm here to chat, help, and support you. What's on your mind today?",
+      "Where words weave magic, and emotions burn.",
   },
 ];

@@ -1,12 +1,10 @@
-// hooks/useChatbot.ts
+
 "use client";
 
 import { useState, useEffect, useRef, useCallback } from "react";
 import { GoogleGenerativeAI, Part, Content } from "@google/generative-ai";
 import { PROMPTS } from "@/lib/prompts";
 import { ChatbotActions, ChatbotState, Message, Prompt } from "@/types";
-
-
 
 const API_KEY = process.env.NEXT_PUBLIC_GEMINI_API_KEY;
 
@@ -20,12 +18,54 @@ const model = genAI.getGenerativeModel({
 });
 
 
+const getInitialSelectedPrompt = (
+  cookiePromptId: string | undefined
+): Prompt => {
+  if (cookiePromptId) {
+    const promptFromCookie = PROMPTS.find((p) => p.id === cookiePromptId);
+    if (promptFromCookie) {
+      console.log(
+        "[useChatbot] Initializing selectedPrompt from cookie:",
+        promptFromCookie.name
+      );
+      return promptFromCookie;
+    }
+    console.warn(
+      `[useChatbot] Prompt ID "${cookiePromptId}" from cookie not found. Falling back to default.`
+    );
+  }
 
-export function useChatbot(initialPromptIdFromCookie: string | undefined): ChatbotState & ChatbotActions {
+  if (PROMPTS.length > 0) {
+    console.log(
+      "[useChatbot] Initializing selectedPrompt with default:",
+      PROMPTS[0].name
+    );
+    return PROMPTS[0];
+  }
+
+  console.error(
+    "[useChatbot] PROMPTS array is empty. Cannot select an initial prompt."
+  );
+
+  return {
+    id: "error_no_prompts",
+    name: "Error",
+    text: "No prompts configured.",
+    greeting: "Error: Chatbot cannot be initialized without prompts.",
+  };
+};
+
+export function useChatbot(
+  initialPromptIdFromCookie: string | undefined
+): ChatbotState & ChatbotActions {
   const [messages, setMessages] = useState<Message[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [selectedPrompt, setSelectedPrompt] = useState<Prompt>(PROMPTS[0]);
+
+
+  const [selectedPrompt, setSelectedPrompt] = useState<Prompt>(() =>
+    getInitialSelectedPrompt(initialPromptIdFromCookie)
+  );
 
   const chatRef = useRef<ReturnType<typeof model.startChat> | null>(null);
   const messageIdCounter = useRef(0);
@@ -40,106 +80,96 @@ export function useChatbot(initialPromptIdFromCookie: string | undefined): Chatb
       setError(null);
       try {
         console.log(
-          "Initializing/Updating chat with prompt:",
+          "[useChatbot] Initializing/Updating chat with prompt:",
           promptToInit.name,
           "Existing messages count:",
           existingMessages?.length || 0
         );
 
-        const systemInstructionPayload: Content = {
+   
+        const systemInstructionForGemini: Content = {
           parts: [{ text: promptToInit.text.trim() }],
-          role: ""
+          role: "system", 
         };
 
         console.log(
-          "System instruction (Content object) for startChat:",
-          JSON.stringify(systemInstructionPayload)
+          "[useChatbot] System instruction for startChat:",
+          JSON.stringify(systemInstructionForGemini)
         );
 
         let historyForGemini: Content[] = [];
-        let firstUserMessageIndex = -1; // Declared at a higher scope and initialized
+        let firstUserMessageIndex = -1;
 
         if (existingMessages && existingMessages.length > 0) {
           firstUserMessageIndex = existingMessages.findIndex(
             (msg) => msg.sender === "user"
-          ); // Assigned here
+          );
 
           if (firstUserMessageIndex !== -1) {
-            historyForGemini = existingMessages
-              .slice(firstUserMessageIndex)
-              .filter((msg) => {
-                if (msg.sender === "user") return true;
-                if (
-                  msg.sender === "ai" &&
-                  msg.text.trim() !== "" &&
-                  !msg.text.startsWith("Sorry, an error occurred") &&
-                  msg.text.trim() !== promptToInit.greeting
-                )
-                  return true;
-                return false;
-              })
+            const relevantMessages = existingMessages.slice(firstUserMessageIndex);
+            const mappedHistory = relevantMessages
               .map((message) => ({
                 parts: [{ text: message.text }],
                 role: message.sender === "user" ? "user" : "model",
               }));
 
-            if (
-              historyForGemini.length > 0 &&
-              historyForGemini[0].role === "model"
-            ) {
-              console.warn(
-                "History construction resulted in 'model' as first message. Attempting to correct or clear."
-              );
-              const actualFirstUserInHistory = historyForGemini.findIndex(
-                (h) => h.role === "user"
-              );
-              if (actualFirstUserInHistory !== -1) {
-                historyForGemini = historyForGemini.slice(
-                  actualFirstUserInHistory
-                );
+
+            let currentExpectedRole = "user";
+            for (const msg of mappedHistory) {
+
+              if (msg.role === "model" && 
+                 (msg.parts[0].text.trim() === "" || 
+                  msg.parts[0].text.trim() === promptToInit.greeting ||
+                  msg.parts[0].text.startsWith("Sorry, an error occurred"))) {
+                console.log("[useChatbot] Skipping empty/greeting/error AI message from history construction:", msg.parts[0].text.substring(0,30));
+                continue;
+              }
+
+              if (msg.role === currentExpectedRole) {
+                historyForGemini.push(msg);
+                currentExpectedRole = currentExpectedRole === "user" ? "model" : "user";
               } else {
-                historyForGemini = [];
+                console.warn(
+                  `[useChatbot] History role mismatch. Expected ${currentExpectedRole}, got ${msg.role}. Truncating history here.`
+                );
+                break; 
               }
             }
           } else {
             console.log(
-              "No user messages in existingMessages. Initializing with empty history for Gemini."
+              "[useChatbot] No user messages in existingMessages. Initializing with empty history for Gemini."
             );
           }
         }
 
         if (historyForGemini.length > 0) {
           console.log(
-            "Re-initializing with history for Gemini:",
+            "[useChatbot] Re-initializing with history for Gemini:",
             historyForGemini.map((h) => ({
               role: h.role,
               textLength: h.parts[0]?.text?.length ?? 0,
-              textStart: h.parts[0]?.text
-                ? h.parts[0]?.text?.substring(0, 50) +
-                  (h.parts[0]?.text?.length > 50 ? "..." : "")
-                : "",
+              textStart: (h.parts[0]?.text || "").substring(0, 50) + "...",
             }))
           );
         } else {
           console.log(
-            "No valid history to pass to Gemini for re-initialization or it's a fresh start."
+            "[useChatbot] No valid history for Gemini or fresh start."
           );
         }
+        
+        chatRef.current = null; 
 
         chatRef.current = model.startChat({
           history: historyForGemini,
           generationConfig: {
             maxOutputTokens: 8192,
           },
-          systemInstruction: systemInstructionPayload,
+          systemInstruction: systemInstructionForGemini,
         });
 
-        // This condition now safely uses firstUserMessageIndex
-        if (
-          !existingMessages ||
-          existingMessages.length === 0 ||
-          (historyForGemini.length === 0 && firstUserMessageIndex === -1)
-        ) {
+
+        if (!existingMessages || existingMessages.length === 0 || (historyForGemini.length === 0 && firstUserMessageIndex === -1)) {
+
           const greetingMessage: Message = {
             id: generateMessageId(),
             sender: "ai",
@@ -147,29 +177,39 @@ export function useChatbot(initialPromptIdFromCookie: string | undefined): Chatb
             timestamp: new Date(),
           };
           setMessages([greetingMessage]);
-        } else if (existingMessages) {
-          setMessages(existingMessages);
+        } else {
+
+          setMessages([...existingMessages]);
         }
-        console.log("Chat initialized/updated successfully.");
+        console.log("[useChatbot] Chat initialized/updated successfully.");
       } catch (err) {
-        console.error("Failed to initialize/update chat:", err);
-        let detailedErrorMessage =
-          "Failed to initialize/update chat session. Check console for details.";
-        if (err instanceof Error) {
-          detailedErrorMessage = `Failed to initialize/update chat session: ${err.message}`;
-        } else if (typeof err === "string") {
-          detailedErrorMessage = `Failed to initialize/update chat session: ${err}`;
-        }
-        setError(detailedErrorMessage);
+        console.error("[useChatbot] Failed to initialize/update chat:", err);
+        const errorMsg = err instanceof Error ? err.message : String(err);
+        setError(`Failed to initialize/update chat: ${errorMsg}`);
         if (!existingMessages || existingMessages.length === 0) {
-          setMessages([]);
+          setMessages([]); 
         }
       } finally {
         setIsLoading(false);
       }
     },
-    [generateMessageId]
+    [generateMessageId] // Keep dependencies minimal for initializeChat stability
   );
+
+  useEffect(() => {
+
+    if (selectedPrompt && selectedPrompt.id !== "error_no_prompts") {
+
+      if (!chatRef.current || messages.length === 0) {
+        console.log(
+          `[useChatbot] useEffect [selectedPrompt]: Initializing chat for prompt "${selectedPrompt.name}".`
+        );
+        initializeChat(selectedPrompt); 
+      }
+    }
+
+  }, [selectedPrompt, initializeChat, messages.length]); 
+
 
   const sendMessage = useCallback(
     async (messageText: string) => {
@@ -181,8 +221,8 @@ export function useChatbot(initialPromptIdFromCookie: string | undefined): Chatb
         text: messageText.trim(),
         timestamp: new Date(),
       };
-
-      const messagesAtSendStart = [...messages];
+      
+      const currentMessages = [...messages]; 
 
       setMessages((prev) => [...prev, userMessage]);
       setIsLoading(true);
@@ -200,12 +240,15 @@ export function useChatbot(initialPromptIdFromCookie: string | undefined): Chatb
       try {
         if (!chatRef.current) {
           console.warn(
-            "Chat session not initialized in sendMessage. Attempting to re-initialize with history."
+            "[useChatbot] sendMessage: Chat session not initialized. Attempting to re-initialize with history."
           );
-          initializeChat(selectedPrompt, messagesAtSendStart);
+
+          initializeChat(selectedPrompt, [...currentMessages, userMessage]);
           if (!chatRef.current) {
+
+            setMessages(currentMessages);
+            setError("Chat session could not be re-initialized. Please try resetting.");
             setIsLoading(false);
-            setMessages(messagesAtSendStart);
             return;
           }
         }
@@ -248,11 +291,10 @@ export function useChatbot(initialPromptIdFromCookie: string | undefined): Chatb
           );
         }
       } catch (err) {
-        console.error("Error sending message:", err);
+        console.error("[useChatbot] Error sending message:", err);
         const errorMessageText =
           err instanceof Error ? err.message : "Unknown error sending message";
         setError(`Failed to get response: ${errorMessageText}`);
-
         setMessages((prevMessages) =>
           prevMessages.map((msg) =>
             msg.id === aiMessageId
@@ -273,7 +315,6 @@ export function useChatbot(initialPromptIdFromCookie: string | undefined): Chatb
       initializeChat,
       selectedPrompt,
       messages,
-      error,
     ]
   );
 
@@ -281,20 +322,21 @@ export function useChatbot(initialPromptIdFromCookie: string | undefined): Chatb
     (promptId: string) => {
       const newPrompt = PROMPTS.find((p) => p.id === promptId);
       if (!newPrompt) {
-        console.error(`Prompt with id ${promptId} not found`);
+        console.error(`[useChatbot] Prompt with id ${promptId} not found`);
         setError(`Prompt with id ${promptId} not found. Using current prompt.`);
         return;
       }
       if (newPrompt.id === selectedPrompt.id) {
-        console.log("Prompt already selected:", newPrompt.name);
+        console.log("[useChatbot] Prompt already selected:", newPrompt.name);
         return;
       }
 
-      console.log("Changing prompt to:", newPrompt.name);
+      console.log("[useChatbot] Changing prompt to:", newPrompt.name);
       setSelectedPrompt(newPrompt);
+
       initializeChat(newPrompt, messages);
     },
-    [initializeChat, messages, selectedPrompt.id]
+    [initializeChat, messages, selectedPrompt.id] 
   );
 
   const clearError = useCallback(() => {
@@ -302,17 +344,11 @@ export function useChatbot(initialPromptIdFromCookie: string | undefined): Chatb
   }, []);
 
   const resetChat = useCallback(() => {
-    console.log("Resetting chat with prompt:", selectedPrompt.name);
+    console.log("[useChatbot] Resetting chat with prompt:", selectedPrompt.name);
+    setMessages([]); 
+    chatRef.current = null; 
     initializeChat(selectedPrompt);
   }, [selectedPrompt, initializeChat]);
-
-  useEffect(() => {
-    if (selectedPrompt && (!chatRef.current || messages.length === 0)) {
-      console.log("Initial mount: initializing chat with selected prompt.");
-      initializeChat(selectedPrompt);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedPrompt, initializeChat]); // initializeChat is now stable if its own deps are stable
 
   return {
     messages,

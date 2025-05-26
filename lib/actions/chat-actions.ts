@@ -1,4 +1,4 @@
-// lib/actions/chat-actions.ts
+
 "use server";
 
 import { revalidatePath } from "next/cache";
@@ -17,8 +17,6 @@ export interface ChatSession {
   updatedAt: string;
 }
 
-// In a real app, this would be a database
-// For demo purposes, using in-memory storage
 let chatSessions: ChatSession[] = [];
 
 export async function saveChatSession(
@@ -34,7 +32,7 @@ export async function saveChatSession(
 
     chatSessions.push(newSession);
 
-    // In a real app, save to database here
+
     console.log("Chat session saved:", newSession.id);
 
     revalidatePath("/chat");
@@ -47,7 +45,7 @@ export async function saveChatSession(
 
 export async function getChatSessions(userId?: string) {
   try {
-    // Filter by userId if provided
+
     const sessions = userId
       ? chatSessions.filter((session) => session.userId === userId)
       : chatSessions;
@@ -114,7 +112,7 @@ export async function updateChatSession(
   }
 }
 
-// Analytics server actions
+
 export async function logChatInteraction(data: {
   promptId: string;
   messageLength: number;
@@ -122,7 +120,7 @@ export async function logChatInteraction(data: {
   userId?: string;
 }) {
   try {
-    // In a real app, log to analytics service
+
     console.log("Chat interaction logged:", {
       ...data,
       timestamp: new Date().toISOString(),
@@ -137,7 +135,6 @@ export async function logChatInteraction(data: {
 
 export async function getPromptUsageStats() {
   try {
-    // Calculate usage stats from sessions
     const stats = chatSessions.reduce((acc, session) => {
       const promptId = session.promptId;
       acc[promptId] = (acc[promptId] || 0) + session.messages.length;
