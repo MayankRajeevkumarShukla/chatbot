@@ -10,13 +10,16 @@
   },
   "dependencies": {
     "@google/generative-ai": "^0.24.1",
+    "chalk": "^5.6.2",
     "date-fns": "^4.1.0",
+    "groq-sdk": "^0.32.0",
     "html2canvas": "^1.4.1",
     "js-cookie": "^3.0.5",
     "next": "15.1.8",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "react-markdown": "^10.1.0",
+    "readline-sync": "^1.4.10",
     "remark-gfm": "^4.0.1"
   },
   "devDependencies": {
