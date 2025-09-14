@@ -45,6 +45,7 @@ export default function ChatPage() {
   } = useChatbot(initialPromptIdFromCookie);
 
   const [input, setInput] = useState("");
+  const [isEnhancing, setIsEnhancing] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const chatContainerRef = useRef<HTMLDivElement>(null);
@@ -62,10 +63,10 @@ export default function ChatPage() {
   useEffect(() => {
     const lastMessageIsAI =
       messages.length > 0 && messages[messages.length - 1].sender === "ai";
-    if (!isLoading && lastMessageIsAI && !error) {
+    if (!isLoading && !isEnhancing && lastMessageIsAI && !error) {
       inputRef.current?.focus();
     }
-  }, [isLoading, messages, error]);
+  }, [isLoading, isEnhancing, messages, error]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -86,20 +87,31 @@ export default function ChatPage() {
   }, [isDropdownOpen]);
 
   const handleSendMessage = useCallback(async () => {
-    if (input.trim() === "" || isLoading) return;
+    if (input.trim() === "" || isLoading || isEnhancing) return;
+    
     const messageText = input.trim();
     setInput("");
+    setIsEnhancing(true);
+    
     const startTime = Date.now();
-    await sendMessage(messageText);
-    if (selectedPrompt) {
-      const responseTime = Date.now() - startTime;
-      await logChatInteraction({
-        promptId: selectedPrompt.id,
-        messageLength: messageText.length,
-        responseTime,
-      });
+    
+    try {
+      await sendMessage(messageText);
+      
+      if (selectedPrompt) {
+        const responseTime = Date.now() - startTime;
+        await logChatInteraction({
+          promptId: selectedPrompt.id,
+          messageLength: messageText.length,
+          responseTime,
+        });
+      }
+    } catch (error) {
+      console.error("Error sending message:", error);
+    } finally {
+      setIsEnhancing(false);
     }
-  }, [input, isLoading, sendMessage, selectedPrompt]);
+  }, [input, isLoading, isEnhancing, sendMessage, selectedPrompt]);
 
   const handleKeyPress = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Enter" && !e.shiftKey) {
@@ -115,7 +127,6 @@ export default function ChatPage() {
 
   const handleShare = useCallback(async () => {
     if (!chatContainerRef.current || messages.length === 0) {
-      // Alert already handled by disabled state, but good for programmatic calls
       return;
     }
 
@@ -248,6 +259,8 @@ export default function ChatPage() {
     );
   }
 
+  const isProcessing = isLoading || isEnhancing;
+
   return (
     <div className="min-h-screen bg-gray-100 flex items-center justify-center p-4">
       {/* New wrapper for chat container and share button */}
@@ -263,8 +276,8 @@ export default function ChatPage() {
             <div ref={dropdownRef} className="relative flex-shrink-0">
               <button
                 type="button"
-                onClick={() => !isLoading && setIsDropdownOpen(!isDropdownOpen)}
-                disabled={isLoading}
+                onClick={() => !isProcessing && setIsDropdownOpen(!isDropdownOpen)}
+                disabled={isProcessing}
                 className="bg-white text-black border border-gray-300 px-1 sm:px-2 py-1 text-xs sm:text-sm focus:outline-none focus:ring-1 focus:ring-black cursor-pointer disabled:opacity-50 pr-6 sm:pr-8 relative text-left w-[120px] sm:w-[150px]"
               >
                 <span className="truncate block">{selectedPrompt.name}</span>
@@ -305,13 +318,18 @@ export default function ChatPage() {
               </div>
             </div>
 
-            {/* Centered Title - Responsive */}
+            {/* Centered Title - Responsive with enhancement status */}
             <div className="flex-grow flex justify-center px-2">
               <h1 className="text-sm sm:text-lg font-medium text-center truncate">
                 <span className="hidden sm:inline">
                   Sahil Gulihar's Chatbot
                 </span>
                 <span className="sm:hidden">SG's Chatbot</span>
+                {isEnhancing && (
+                  <span className="ml-2 text-xs text-yellow-300">
+                    (Enhancing...)
+                  </span>
+                )}
               </h1>
             </div>
 
@@ -320,7 +338,7 @@ export default function ChatPage() {
               {/* Reset button */}
               <button
                 onClick={resetChat}
-                disabled={isLoading}
+                disabled={isProcessing}
                 className="px-2 sm:px-3 py-1 text-xs sm:text-sm bg-transparent border border-white text-white hover:bg-white hover:text-black transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 Reset
@@ -345,7 +363,7 @@ export default function ChatPage() {
                     <Markdown remarkPlugins={[remarkGfm]}>
                       {message.text === "" &&
                       message.sender === "ai" &&
-                      isLoading
+                      isProcessing
                         ? "..."
                         : message.text}
                     </Markdown>
@@ -353,6 +371,36 @@ export default function ChatPage() {
                 </div>
               );
             })}
+            
+            {/* Enhancement indicator */}
+            {isEnhancing && (
+              <div className="max-w-[85%] p-3 border border-blue-300 text-sm leading-relaxed break-words self-center text-center bg-blue-50 text-blue-700">
+                <div className="flex items-center justify-center gap-2">
+                  <svg
+                    className="animate-spin h-4 w-4 text-blue-500"
+                    xmlns="http://www.w3.org/2000/svg"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                  >
+                    <circle
+                      className="opacity-25"
+                      cx="12"
+                      cy="12"
+                      r="10"
+                      stroke="currentColor"
+                      strokeWidth="4"
+                    ></circle>
+                    <path
+                      className="opacity-75"
+                      fill="currentColor"
+                      d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                    ></path>
+                  </svg>
+                  <span>Enhancing system prompt for better response...</span>
+                </div>
+              </div>
+            )}
+
             {error && (
               <div className="max-w-[85%] p-3 border-2 border-red-500 text-sm leading-relaxed break-words self-center text-center bg-red-50 text-red-700">
                 <p className="m-0 mb-2 font-medium">{error}</p>
@@ -374,38 +422,47 @@ export default function ChatPage() {
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyPress={handleKeyPress}
-              placeholder="Type your message..."
-              disabled={isLoading}
+              placeholder={
+                isEnhancing 
+                  ? "Enhancing system prompt..." 
+                  : "Type your message..."
+              }
+              disabled={isProcessing}
               rows={2}
               className="flex-grow p-3 border border-black text-sm resize-none min-h-[60px] max-h-[120px] overflow-y-auto bg-white text-black placeholder-gray-500 focus:outline-none focus:ring-1 focus:ring-black disabled:opacity-50"
               style={{ fontFamily: "Arial, sans-serif" }}
             />
             <button
               onClick={handleSendMessage}
-              disabled={isLoading || input.trim() === ""}
+              disabled={isProcessing || input.trim() === ""}
               className="px-6 py-3 bg-gray-500 text-white border border-gray-500 text-sm font-medium hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex-shrink-0 flex items-center justify-center"
             >
-              {isLoading ? (
-                <svg
-                  className="animate-spin h-5 w-5 text-white"
-                  xmlns="http://www.w3.org/2000/svg"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                >
-                  <circle
-                    className="opacity-25"
-                    cx="12"
-                    cy="12"
-                    r="10"
-                    stroke="currentColor"
-                    strokeWidth="4"
-                  ></circle>
-                  <path
-                    className="opacity-75"
-                    fill="currentColor"
-                    d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-                  ></path>
-                </svg>
+              {isProcessing ? (
+                <div className="flex items-center gap-2">
+                  <svg
+                    className="animate-spin h-5 w-5 text-white"
+                    xmlns="http://www.w3.org/2000/svg"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                  >
+                    <circle
+                      className="opacity-25"
+                      cx="12"
+                      cy="12"
+                      r="10"
+                      stroke="currentColor"
+                      strokeWidth="4"
+                    ></circle>
+                    <path
+                      className="opacity-75"
+                      fill="currentColor"
+                      d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                    ></path>
+                  </svg>
+                  <span className="text-xs">
+                    {isEnhancing ? "Enhancing" : "Sending"}
+                  </span>
+                </div>
               ) : (
                 "Send"
               )}
@@ -413,15 +470,21 @@ export default function ChatPage() {
           </div>
         </div>
 
-        {/* New Share Button Location */}
+        {/* Enhanced Share Button with status indicator */}
         <button
           onClick={handleShare}
-          disabled={isLoading || isSharing || messages.length === 0}
+          disabled={isProcessing || isSharing || messages.length === 0}
           className="mt-3 py-1 px-2 text-xs text-gray-500 hover:text-gray-800 hover:underline focus:outline-none focus:ring-1 focus:ring-gray-400 rounded disabled:text-gray-400 disabled:opacity-70 disabled:cursor-not-allowed disabled:no-underline"
           title="Download chat as PNG"
         >
           {isSharing ? "Sharing..." : "Download Chat as Image (Beta)"}
         </button>
+        
+        {/* Enhancement info tooltip */}
+        <div className="mt-2 text-xs text-gray-400 text-center max-w-[400px] px-2">
+          <span className="inline-block w-2 h-2 bg-blue-400 rounded-full mr-1"></span>
+          This chatbot uses AI-enhanced prompts that adapt to your messages for better responses
+        </div>
       </div>
     </div>
   );

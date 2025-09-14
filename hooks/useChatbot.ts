@@ -1,4 +1,3 @@
-
 "use client";
 
 import { useState, useEffect, useRef, useCallback } from "react";
@@ -14,9 +13,17 @@ if (!API_KEY) {
 
 const genAI = new GoogleGenerativeAI(API_KEY);
 const model = genAI.getGenerativeModel({
+<<<<<<< Updated upstream
   model: "gemini-2.5-flash",
+=======
+  model: "gemini-2.0-flash",
+>>>>>>> Stashed changes
 });
 
+// Small model for system prompt enhancement
+const enhancerModel = genAI.getGenerativeModel({
+  model: "gemini-2.0-flash", // Using a smaller, faster model
+});
 
 const getInitialSelectedPrompt = (
   cookiePromptId: string | undefined
@@ -55,14 +62,57 @@ const getInitialSelectedPrompt = (
   };
 };
 
+// Function to enhance system prompt based on user input
+const enhanceSystemPrompt = async (
+  originalPrompt: string,
+  userMessage: string
+): Promise<string> => {
+  try {
+    const enhancementPrompt = `
+Based on the user's message and the current system prompt, generate 5 bullet points that should be added to the system prompt to make the AI respond more appropriately to the user's specific needs and context.
+
+Current System Prompt:
+${originalPrompt}
+
+User's Message:
+${userMessage}
+
+Please provide exactly 5 bullet points that enhance the system prompt. Format them as:
+• Point 1
+• Point 2
+• Point 3
+• Point 4
+• Point 5
+
+Focus on:
+- Adapting to the user's communication style
+- Addressing their specific emotional state or needs
+- Enhancing the persona's response to their context
+- Improving relevance and engagement
+- Maintaining the original character while being more responsive
+`;
+
+    const result = await enhancerModel.generateContent(enhancementPrompt);
+    const enhancementText = result.response.text();
+    
+    // Combine original prompt with enhancements
+    const enhancedPrompt = `${originalPrompt}\n\n--- Dynamic Enhancements ---\n${enhancementText}`;
+    
+    console.log("[useChatbot] Enhanced system prompt:", enhancedPrompt);
+
+    return enhancedPrompt;
+  } catch (error) {
+    console.error("[useChatbot] Error enhancing system prompt:", error);
+    return originalPrompt; // Fallback to original prompt
+  }
+};
+
 export function useChatbot(
   initialPromptIdFromCookie: string | undefined
 ): ChatbotState & ChatbotActions {
   const [messages, setMessages] = useState<Message[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-
   const [selectedPrompt, setSelectedPrompt] = useState<Prompt>(() =>
     getInitialSelectedPrompt(initialPromptIdFromCookie)
   );
@@ -75,7 +125,7 @@ export function useChatbot(
   }, []);
 
   const initializeChat = useCallback(
-    (promptToInit: Prompt, existingMessages?: Message[]) => {
+    (promptToInit: Prompt, existingMessages?: Message[], enhancedPromptText?: string) => {
       setIsLoading(true);
       setError(null);
       try {
@@ -86,10 +136,11 @@ export function useChatbot(
           existingMessages?.length || 0
         );
 
-   
+        // Use enhanced prompt if provided, otherwise use original
+        const promptText = enhancedPromptText || promptToInit.text;
         const systemInstructionForGemini: Content = {
-          parts: [{ text: promptToInit.text.trim() }],
-          role: "system", 
+          parts: [{ text: promptText.trim() }],
+          role: "system",
         };
 
         console.log(
@@ -113,10 +164,8 @@ export function useChatbot(
                 role: message.sender === "user" ? "user" : "model",
               }));
 
-
             let currentExpectedRole = "user";
             for (const msg of mappedHistory) {
-
               if (msg.role === "model" && 
                  (msg.parts[0].text.trim() === "" || 
                   msg.parts[0].text.trim() === promptToInit.greeting ||
@@ -132,7 +181,7 @@ export function useChatbot(
                 console.warn(
                   `[useChatbot] History role mismatch. Expected ${currentExpectedRole}, got ${msg.role}. Truncating history here.`
                 );
-                break; 
+                break;
               }
             }
           } else {
@@ -157,7 +206,7 @@ export function useChatbot(
           );
         }
         
-        chatRef.current = null; 
+        chatRef.current = null;
 
         chatRef.current = model.startChat({
           history: historyForGemini,
@@ -167,9 +216,7 @@ export function useChatbot(
           systemInstruction: systemInstructionForGemini,
         });
 
-
         if (!existingMessages || existingMessages.length === 0 || (historyForGemini.length === 0 && firstUserMessageIndex === -1)) {
-
           const greetingMessage: Message = {
             id: generateMessageId(),
             sender: "ai",
@@ -178,7 +225,6 @@ export function useChatbot(
           };
           setMessages([greetingMessage]);
         } else {
-
           setMessages([...existingMessages]);
         }
         console.log("[useChatbot] Chat initialized/updated successfully.");
@@ -187,29 +233,25 @@ export function useChatbot(
         const errorMsg = err instanceof Error ? err.message : String(err);
         setError(`Failed to initialize/update chat: ${errorMsg}`);
         if (!existingMessages || existingMessages.length === 0) {
-          setMessages([]); 
+          setMessages([]);
         }
       } finally {
         setIsLoading(false);
       }
     },
-    [generateMessageId] // Keep dependencies minimal for initializeChat stability
+    [generateMessageId]
   );
 
   useEffect(() => {
-
     if (selectedPrompt && selectedPrompt.id !== "error_no_prompts") {
-
       if (!chatRef.current || messages.length === 0) {
         console.log(
           `[useChatbot] useEffect [selectedPrompt]: Initializing chat for prompt "${selectedPrompt.name}".`
         );
-        initializeChat(selectedPrompt); 
+        initializeChat(selectedPrompt);
       }
     }
-
-  }, [selectedPrompt, initializeChat, messages.length]); 
-
+  }, [selectedPrompt, initializeChat, messages.length]);
 
   const sendMessage = useCallback(
     async (messageText: string) => {
@@ -222,7 +264,7 @@ export function useChatbot(
         timestamp: new Date(),
       };
       
-      const currentMessages = [...messages]; 
+      const currentMessages = [...messages];
 
       setMessages((prev) => [...prev, userMessage]);
       setIsLoading(true);
@@ -238,19 +280,28 @@ export function useChatbot(
       setMessages((prev) => [...prev, initialAiMessage]);
 
       try {
+        // Enhance the system prompt based on user input
+        const enhancedPromptText = await enhanceSystemPrompt(
+          selectedPrompt.text,
+          messageText.trim()
+        );
+
+        // Re-initialize chat with enhanced prompt
         if (!chatRef.current) {
           console.warn(
-            "[useChatbot] sendMessage: Chat session not initialized. Attempting to re-initialize with history."
+            "[useChatbot] sendMessage: Chat session not initialized. Initializing with enhanced prompt."
           );
+          initializeChat(selectedPrompt, [...currentMessages, userMessage], enhancedPromptText);
+        } else {
+          // Re-initialize with enhanced prompt and current conversation
+          initializeChat(selectedPrompt, [...currentMessages, userMessage], enhancedPromptText);
+        }
 
-          initializeChat(selectedPrompt, [...currentMessages, userMessage]);
-          if (!chatRef.current) {
-
-            setMessages(currentMessages);
-            setError("Chat session could not be re-initialized. Please try resetting.");
-            setIsLoading(false);
-            return;
-          }
+        if (!chatRef.current) {
+          setMessages(currentMessages);
+          setError("Chat session could not be initialized. Please try resetting.");
+          setIsLoading(false);
+          return;
         }
 
         const streamResult = await chatRef.current.sendMessageStream(
@@ -333,10 +384,9 @@ export function useChatbot(
 
       console.log("[useChatbot] Changing prompt to:", newPrompt.name);
       setSelectedPrompt(newPrompt);
-
       initializeChat(newPrompt, messages);
     },
-    [initializeChat, messages, selectedPrompt.id] 
+    [initializeChat, messages, selectedPrompt.id]
   );
 
   const clearError = useCallback(() => {
@@ -345,8 +395,8 @@ export function useChatbot(
 
   const resetChat = useCallback(() => {
     console.log("[useChatbot] Resetting chat with prompt:", selectedPrompt.name);
-    setMessages([]); 
-    chatRef.current = null; 
+    setMessages([]);
+    chatRef.current = null;
     initializeChat(selectedPrompt);
   }, [selectedPrompt, initializeChat]);
 
