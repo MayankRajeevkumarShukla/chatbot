@@ -13,6 +13,7 @@
     "chalk": "^5.6.2",
     "date-fns": "^4.1.0",
     "dotenv": "^17.2.2",
+    "express": "^5.1.0",
     "groq-sdk": "^0.32.0",
     "html2canvas": "^1.4.1",
     "js-cookie": "^3.0.5",
@@ -21,7 +22,8 @@
     "react-dom": "^19.0.0",
     "react-markdown": "^10.1.0",
     "readline-sync": "^1.4.10",
-    "remark-gfm": "^4.0.1"
+    "remark-gfm": "^4.0.1",
+    "swagger-ui-express": "^5.0.1"
   },
   "devDependencies": {
     "@types/js-cookie": "^3.0.6",
